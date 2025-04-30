@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, FlatList, Button } from 'react-native';
+import { View, Text, FlatList, Button, Alert } from 'react-native';
 import * as FileSystem from 'expo-file-system';
 import CreateItemModal from '../components/CreateItemModal';
 import FileDetailsModal from '../components/FileDetailsModal';
@@ -12,7 +12,8 @@ export default function HomeScreen() {
   const [createType, setCreateType] = useState('file');
   const [fileDetailsVisible, setFileDetailsVisible] = useState(false);
   const [fileInfo, setFileInfo] = useState({});
-  const [memoryStats, setMemoryStats] = useState('');
+  const [memoryStats, setMemoryStats] = useState({ free: '', total: '', used: '' });
+
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [fileToEditPath, setFileToEditPath] = useState('');
   const [fileToEditContent, setFileToEditContent] = useState('');
@@ -44,8 +45,17 @@ export default function HomeScreen() {
 
   const loadMemoryStats = async () => {
     const freeSpace = await FileSystem.getFreeDiskStorageAsync();
-    const freeSpaceInGB = (freeSpace / (1024 ** 3)).toFixed(2);
-    setMemoryStats(freeSpaceInGB);
+    const totalSpace = await FileSystem.getTotalDiskCapacityAsync();
+
+    const freeSpaceGB = (freeSpace / (1024 ** 3)).toFixed(2);
+    const totalSpaceGB = (totalSpace / (1024 ** 3)).toFixed(2);
+    const usedSpaceGB = ((totalSpace - freeSpace) / (1024 ** 3)).toFixed(2);
+
+    setMemoryStats({
+      free: freeSpaceGB,
+      total: totalSpaceGB,
+      used: usedSpaceGB,
+    });
   };
 
   const isInsideAppData = (path) => {
@@ -95,19 +105,35 @@ export default function HomeScreen() {
   };
 
 
-  const handleDelete = async (itemName) => {
-    const itemPath = currentPath + itemName;
-    if (!isInsideAppData(itemPath)) return;
+  const handleDelete = (itemName) => {
+    Alert.alert(
+      'Підтвердження',
+      `Ви впевнені, що хочете видалити "${itemName}"?`,
+      [
+        { text: 'Скасувати', style: 'cancel' },
+        {
+          text: 'Видалити',
+          style: 'destructive',
+          onPress: async () => {
+            const itemPath = currentPath + itemName;
+            const itemInfo = await FileSystem.getInfoAsync(itemPath);
 
-    const itemInfo = await FileSystem.getInfoAsync(itemPath);
-
-    if (itemInfo.isDirectory) {
-      await FileSystem.deleteAsync(itemPath, { idempotent: true });
-    } else {
-      await FileSystem.deleteAsync(itemPath);
-    }
-    loadDirectoryContent(currentPath);
+            try {
+              if (itemInfo.isDirectory) {
+                await FileSystem.deleteAsync(itemPath, { idempotent: true });
+              } else {
+                await FileSystem.deleteAsync(itemPath);
+              }
+              loadDirectoryContent(currentPath);
+            } catch (error) {
+              console.error('Помилка при видаленні:', error);
+            }
+          },
+        },
+      ]
+    );
   };
+
 
   const handleViewDetails = async (fileName) => {
     const filePath = currentPath + fileName;
@@ -166,7 +192,10 @@ export default function HomeScreen() {
     <View style={{ flex: 1, padding: 20 }}>
       <Text>Поточний шлях: {currentPath}</Text>
       <Button title="Назад" onPress={handleBackPress} />
-      <Text>Вільна пам'ять: {memoryStats} GB</Text>
+      <Text>Вільна пам'ять: {memoryStats.free} GB</Text>
+      <Text>Загальний обсяг памʼяті: {memoryStats.total} GB</Text>
+      <Text>Використано памʼяті: {memoryStats.used} GB</Text>
+
 
       <FlatList
         data={items}
